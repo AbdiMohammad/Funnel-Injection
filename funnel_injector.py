@@ -12,7 +12,7 @@ import torch.multiprocessing as mp
 from torch.utils.data.distributed import DistributedSampler
 from torch.distributed import init_process_group, destroy_process_group
 
-import cifar_resnet
+import cifar_resnet, cifar_resnet_tiny
 
 from trainer import Trainer
 
@@ -46,7 +46,7 @@ def main():
     val_ds = datasets.CIFAR10('data', train=False, transform=val_transform, download=False)
 
     # Get model
-    model = cifar_resnet.resnet18(num_classes=10)
+    model = cifar_resnet_tiny.resnet56(num_classes=10)
     model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
 
     # Get data loader
@@ -73,7 +73,7 @@ def main():
 
     trainer = Trainer(model, train_loader, val_loader, loss_fn, optimizer, lr_scheduler, 10, 'run', 15)
 
-    trainer.train_and_validate(100)
+    trainer.train_and_validate(200)
 
     print(f"Best Results:\nAcc: {trainer.best_val_acc}\tVal Loss: {trainer.best_val_loss}\tTrain Loss: {trainer.best_train_loss}")
     destroy_process_group()
