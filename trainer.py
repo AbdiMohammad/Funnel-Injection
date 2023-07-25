@@ -76,7 +76,7 @@ class Trainer:
                 current = (batch + 1) * len(X)
                 if self.local_rank == 0:
                     print(f"avg loss: {running_loss / (batch + 1):>7f} loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
-        return running_loss / (batch + 1)
+        return running_loss / len(self.train_loader)
 
     def _validate(self):
         size = len(self.val_loader.dataset)

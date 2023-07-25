@@ -74,6 +74,8 @@ def main():
     trainer = Trainer(model, train_loader, val_loader, loss_fn, optimizer, lr_scheduler, 10, 'run', 15)
 
     trainer.train_and_validate(100)
+
+    print(f"Best Results:\nAcc: {trainer.best_val_acc}\tVal Loss: {trainer.best_val_loss}\tTrain Loss: {trainer.best_train_loss}")
     destroy_process_group()
 
 
