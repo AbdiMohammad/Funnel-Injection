@@ -1,10 +1,12 @@
 import os
 from datetime import datetime
+import warnings
 
 import torch
 from torch.utils.data import DataLoader
 
 from torch.nn.parallel import DistributedDataParallel as DDP
+import torch.distributed
 
 class Trainer:
     def __init__(
@@ -83,12 +85,28 @@ class Trainer:
         num_batches = len(self.val_loader)
         self.model.eval()
         val_loss, val_acc = 0, 0
+        num_processed_samples = 0
         with torch.no_grad():
             for X, y in self.val_loader:
                 X, y = X.to(self.local_rank), y.to(self.local_rank)
                 pred = self.model(X)
                 val_loss += self.loss_fn(pred, y).item()
                 val_acc += (pred.argmax(1) == y).type(torch.float).sum().item()
+                num_processed_samples += X.shape[0]
+        num_processed_samples = torch.tensor(num_processed_samples, device="cuda")
+        torch.distributed.barrier()
+        torch.distributed.all_reduce(num_processed_samples)
+        if (
+            hasattr(self.val_loader.dataset, "__len__")
+            and len(self.val_loader.dataset) != num_processed_samples
+            and torch.distributed.get_rank() == 0
+        ):
+            warnings.warn(
+                f"It looks like the dataset has {len(self.val_loader.dataset)} samples, but {num_processed_samples} "
+                "samples were used for the validation, which might bias the results. "
+                "Try adjusting the batch size and / or the world size. "
+                "Setting the world size to 1 is always a safe bet."
+            )
         val_loss /= num_batches
         val_acc /= size
         if self.local_rank == 0:
@@ -106,12 +124,14 @@ class Trainer:
     def _save_best(self, epoch):
         filename = f"best_{self.datetime_now.strftime('%Y%m%d_%H%M%S')}.pt"
         best = {
-            "MODEL": self.model.module,
-            "MODEL_STATE": self.model.module.state_dict(),
-            "EPOCHS_RUN": epoch,
-            "VAL_LOSS": self.best_val_loss,
-            "VAL_ACC": self.best_val_acc,
-            "TRAIN_LOSS": self.best_train_loss
+            "model": self.model.module,
+            "model_state": self.model.module.state_dict(),
+            "optimizer": self.optimizer.state_dict(),
+            "lr_scheduler": self.lr_scheduler.state_dict(),
+            "epoch": epoch,
+            "val_loss": self.best_val_loss,
+            "val_acc": self.best_val_acc,
+            "train_loss": self.best_train_loss
         }
         torch.save(best, f"{os.path.join(self.output_dir, filename)}")
 
@@ -128,7 +148,10 @@ class Trainer:
                 print(f"Epoch {epoch}\n-------------------------------")
             train_loss = self._run_epoch(epoch)
             val_loss, val_acc = self._validate()
-            self.lr_scheduler.step(val_loss)
+            if isinstance(self.lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                self.lr_scheduler.step(val_loss)
+            else:
+                self.lr_scheduler.step()
             if self.local_rank == 0 and epoch % self.save_every == 0:
                 self._save_snapshot(epoch)
 
@@ -149,3 +172,6 @@ class Trainer:
                     print(f"Early Stopping: Validation loss doesn't decrease after {self.es_patience} epochs")
                 break
             self.last_val_loss = val_loss
+
+        if self.local_rank == 0:
+            print(f"Best Results:\nAcc: {self.best_val_acc}\tVal Loss: {self.best_val_loss}\tTrain Loss: {self.best_train_loss}")

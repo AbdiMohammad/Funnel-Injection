@@ -19,6 +19,7 @@ from trainer import Trainer
 def ddp_setup():
     init_process_group(backend="nccl")
     torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
+    torch.distributed.barrier()
 
 def main():
     # Reproducibility
@@ -64,18 +65,19 @@ def main():
         batch_size=128,
         pin_memory=True,
         shuffle=False,
-        sampler=DistributedSampler(val_ds)
+        sampler=DistributedSampler(val_ds, shuffle=False)
     )
 
     loss_fn = torch.nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters())
-    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer)
+    # optimizer = torch.optim.Adam(model.parameters())
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.1, momentum=0.9)
+    lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[120, 150, 180])
+    # lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer)
 
     trainer = Trainer(model, train_loader, val_loader, loss_fn, optimizer, lr_scheduler, 10, 'run', 15)
 
     trainer.train_and_validate(200)
 
-    print(f"Best Results:\nAcc: {trainer.best_val_acc}\tVal Loss: {trainer.best_val_loss}\tTrain Loss: {trainer.best_train_loss}")
     destroy_process_group()
 
 
