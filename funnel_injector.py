@@ -14,7 +14,7 @@ from torch.distributed import init_process_group, destroy_process_group
 
 import cifar_resnet, cifar_resnet_tiny
 
-from trainer import Trainer
+from trainer_ddp import Trainer
 
 def ddp_setup():
     init_process_group(backend="nccl")
